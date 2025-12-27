@@ -73,26 +73,8 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between gap-4 px-4">
-        {/* Mobile Menu Trigger (Left) */}
-        {isAuthenticated && (
-          <div className="md:hidden">
-            <Sheet open={isOpen} onOpenChange={setIsOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="mr-2">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-[80%] sm:w-[350px]">
-                <SheetTitle className="text-left mb-4">Menu</SheetTitle>
-                <nav className="flex flex-col gap-2 mt-4">
-                  <NavLinks />
-                </nav>
-              </SheetContent>
-            </Sheet>
-          </div>
-        )}
-
-        <Link href="/" className="flex items-center gap-2 mr-auto md:mr-0">
+      
+        <Link href="" className="flex items-center gap-2 mr-auto md:mr-0">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
             <Car className="h-5 w-5 text-primary-foreground" />
           </div>

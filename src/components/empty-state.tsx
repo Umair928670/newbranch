@@ -1,6 +1,6 @@
-
 import { Button } from "@/components/ui/button";
 import type { LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils"; // 1. Import class merging utility
 
 type EmptyStateProps = {
   icon: LucideIcon;
@@ -10,12 +10,14 @@ type EmptyStateProps = {
     label: string;
     onClick: () => void;
   };
+  className?: string; // 2. Add optional className prop
 };
 
-export function EmptyState({ icon: Icon, title, description, action }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div
-      className="flex flex-col items-center justify-center py-16 px-4 text-center"
+      // 3. Merge the default styles with your custom className
+      className={cn("flex flex-col items-center justify-center py-16 px-4 text-center", className)}
       data-testid="empty-state"
     >
       <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted mb-6">

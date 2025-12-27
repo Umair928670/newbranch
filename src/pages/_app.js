@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/lib/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { Header } from "@/components/header";
 import { queryClient } from "@/lib/queryClient";
+import { MobileNav } from "@/components/mobile-nav";
 
 
 export default function App({ Component, pageProps }) {
@@ -17,6 +18,7 @@ export default function App({ Component, pageProps }) {
             <div className="min-h-screen bg-background">
               <Header />
               <Component {...pageProps} />
+              <MobileNav />
             </div>
             <Toaster />
           </TooltipProvider>
