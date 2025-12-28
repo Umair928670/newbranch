@@ -8,15 +8,26 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { BookingWithDetails } from "@shared/schema";
-import { MapPin, Clock, Users, Banknote, Calendar, Check, X, Navigation, Star, ArrowRight, Ban } from "lucide-react";
+import { 
+  Clock, 
+  Users, 
+  Banknote, 
+  Calendar, 
+  Check, 
+  X, 
+  Navigation, 
+  Star, 
+  FileText, 
+  MessageCircle, 
+  Ban 
+} from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
-import { MessageCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type BookingCardProps = {
   booking: BookingWithDetails;
@@ -25,14 +36,15 @@ type BookingCardProps = {
   onReject?: () => void;
   onCancel?: () => void;
   onTrack?: () => void;
+  onViewDetails?: () => void;
 };
 
+// Base config for standard booking statuses
 const statusConfig: any = {
-  pending: { label: "Pending", className: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-200" },
-  accepted: { label: "Accepted", className: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-200" },
-  rejected: { label: "Rejected", className: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-200" },
-  cancelled: { label: "Cancelled", className: "bg-muted text-muted-foreground border-gray-200" },
-  completed: { label: "Completed", className: "bg-blue-100 text-blue-800 hover:bg-blue-100 border-blue-200" }
+  pending: { label: "Pending", className: "bg-amber-500/10 text-amber-700 border-amber-200" },
+  accepted: { label: "Accepted", className: "bg-emerald-500/10 text-emerald-700 border-emerald-200" },
+  rejected: { label: "Rejected", className: "bg-red-500/10 text-red-700 border-red-200" },
+  cancelled: { label: "Cancelled", className: "bg-muted text-muted-foreground border-border" },
 };
 
 export function BookingCard({
@@ -42,6 +54,7 @@ export function BookingCard({
   onReject,
   onCancel,
   onTrack,
+  onViewDetails
 }: BookingCardProps) {
   const { toast } = useToast();
   const [ratingOpen, setRatingOpen] = useState(false);
@@ -49,7 +62,6 @@ export function BookingCard({
   const [comment, setComment] = useState("");
   const [hasReviewed, setHasReviewed] = useState(!!booking.review);
 
-  // Helper to extract ID string safely from populated objects or raw strings
   const getId = (item: any) => {
     if (!item) return undefined;
     if (typeof item === 'string') return item;
@@ -65,54 +77,57 @@ export function BookingCard({
     return name ? name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "U";
   };
 
-  const status = statusConfig[booking.status] || statusConfig.pending;
-  const departureDate = new Date(ride.departureTime);
-  const isToday = new Date().toDateString() === departureDate.toDateString();
-  const isTomorrow = new Date(Date.now() + 86400000).toDateString() === departureDate.toDateString();
-  const dateLabel = isToday ? "Today" : isTomorrow ? "Tomorrow" : format(departureDate, "MMM d");
+  // --- SMART STATUS LOGIC ---
+  const isRideCompleted = ride.status === "completed";
+  const isLive = ride.status === "ongoing";
+  const isAccepted = booking.status === "accepted";
+  const isPending = booking.status === "pending";
 
-  // Determine which user to display on the card
-  // If viewing as Driver -> Show Passenger
-  // If viewing as Passenger -> Show Driver (which might be nested in ride.driverId due to population)
-  let displayUser = viewAs === "driver" ? passenger : null;
+  // Determine what visual style to use
+  let activeStatus = statusConfig[booking.status] || statusConfig.pending;
+  let borderColor = '#f59e0b'; // Default Amber
 
-  if (viewAs !== "driver") {
-    // Try to find the driver object. 
-    // It might be 'ride.driver' (custom object) or 'ride.driverId' (populated object)
-    if (ride.driver && typeof ride.driver === 'object') {
-      displayUser = ride.driver;
-    } else if (ride.driverId && typeof ride.driverId === 'object') {
-      displayUser = ride.driverId;
-    } else if (booking.driver && typeof booking.driver === 'object') {
-      displayUser = booking.driver;
-    }
+  if (booking.status === 'rejected') borderColor = '#ef4444';
+  else if (booking.status === 'cancelled') borderColor = '#94a3b8';
+  else if (isRideCompleted && isAccepted) {
+    // Override for Completed Rides
+    activeStatus = { label: "Completed", className: "bg-blue-500/10 text-blue-700 border-blue-200" };
+    borderColor = '#3b82f6';
+  } else if (isAccepted) {
+    borderColor = '#10b981';
   }
 
-  const userLabel = viewAs === "driver" ? "Passenger" : "Driver";
-  const isLive = ride.status === "ongoing";
-  const isCompleted = ride.status === "completed";
+  const departureDate = new Date(ride.departureTime);
+  const isToday = new Date().toDateString() === departureDate.toDateString();
+  const dateLabel = isToday ? "Today" : format(departureDate, "MMM d");
 
+  // Determine User to Display
+  let displayUser = viewAs === "driver" ? passenger : null;
+  if (viewAs !== "driver") {
+    if (ride.driver && typeof ride.driver === 'object') displayUser = ride.driver;
+    else if (ride.driverId && typeof ride.driverId === 'object') displayUser = ride.driverId;
+    else if (booking.driver && typeof booking.driver === 'object') displayUser = booking.driver;
+  }
+  const userLabel = viewAs === "driver" ? "Passenger" : "Driver";
+
+  // --- REVIEW MUTATION ---
   const submitReviewMutation = useMutation({
     mutationFn: async () => {
-      // ✅ FIX: Extract IDs safely to ensure strings are sent, not objects
       const rideIdStr = getId(ride);
       const reviewerIdStr = getId(passenger);
-
-      // Determine driver ID (Reviewee)
       let revieweeIdStr = getId(ride.driverId);
+      
       if (!revieweeIdStr && ride.driver) revieweeIdStr = getId(ride.driver);
       if (!revieweeIdStr && booking.driver) revieweeIdStr = getId(booking.driver);
 
-      if (!rideIdStr || !reviewerIdStr || !revieweeIdStr) {
-        throw new Error("Missing ID information for review");
-      }
+      if (!rideIdStr || !reviewerIdStr || !revieweeIdStr) throw new Error("Missing ID info");
 
       return apiRequest("POST", "/api/reviews", {
         rideId: rideIdStr,
         reviewerId: reviewerIdStr,
         revieweeId: revieweeIdStr,
         rating: parseInt(rating),
-        comment: comment || "", // Ensure string
+        comment: comment || "",
       });
     },
     onSuccess: () => {
@@ -121,161 +136,220 @@ export function BookingCard({
       setHasReviewed(true);
     },
     onError: (error: any) => {
-      console.error("Review Error:", error);
-      toast({ title: "Error", description: error.message || "Failed to submit review", variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   });
 
   return (
     <>
-      <Card className="overflow-hidden flex flex-col h-full hover:shadow-md transition-all border-l-4"
-        style={{ borderLeftColor: booking.status === 'accepted' ? '#22c55e' : booking.status === 'rejected' ? '#ef4444' : '#eab308' }}
-        data-testid={`card-booking-${booking.id}`}>
-
-        <CardHeader className="pb-3 bg-muted/5">
-          <div className="flex items-start justify-between gap-4">
+      <Card 
+        className="overflow-hidden flex flex-col h-full shadow-sm hover:shadow-md transition-all border-l-[6px] group bg-card"
+        style={{ borderLeftColor: borderColor }}
+      >
+        {/* HEADER */}
+        <CardHeader className="pb-3 pt-4 px-4 bg-muted/5 border-b">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10 border border-background">
+              <Avatar className="h-11 w-11 border-2 border-background shadow-sm">
                 <AvatarImage src={displayUser?.avatar || undefined} />
-                <AvatarFallback className="bg-primary/10 text-primary">
+                <AvatarFallback className="bg-primary/5 text-primary font-bold text-xs">
                   {getInitials(displayUser?.name || "U")}
                 </AvatarFallback>
               </Avatar>
               <div className="overflow-hidden">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">{userLabel}</p>
-                <p className="font-semibold truncate max-w-[120px]">{displayUser?.name || "Unknown"}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-0.5">{userLabel}</p>
+                <p className="font-bold truncate max-w-[140px] text-sm leading-tight">{displayUser?.name || "Unknown"}</p>
                 {viewAs !== "driver" && ride.vehicle && (
-                  <p className="text-xs text-muted-foreground">{ride.vehicle.model} • {ride.vehicle.color}</p>
+                  <p className="text-[10px] text-muted-foreground truncate mt-0.5">{ride.vehicle.model} • {ride.vehicle.color}</p>
                 )}
               </div>
             </div>
-            <div className="flex flex-col items-end gap-1">
-              <Badge variant="outline" className={status.className}>{status.label}</Badge>
-              {isLive && booking.status === 'accepted' && <Badge className="bg-green-600 text-white animate-pulse">LIVE</Badge>}
+            
+            <div className="flex flex-col items-end gap-1.5">
+              <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5 border-none font-medium", activeStatus.className)}>
+                {activeStatus.label}
+              </Badge>
+              {isLive && isAccepted && (
+                <div className="flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  <span className="text-[10px] font-bold text-green-600">LIVE</span>
+                </div>
+              )}
             </div>
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-4 pt-4 flex-1">
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="flex flex-col items-center pt-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <div className="w-0.5 h-full bg-border min-h-[24px] my-0.5" />
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
-              </div>
-              <div className="flex-1 space-y-3">
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Pickup</p>
-                  <p className="font-medium text-sm leading-tight line-clamp-1">{ride.sourceAddress}</p>
+        {/* CONTENT */}
+        <CardContent className="space-y-4 pt-4 px-4 flex-1">
+          {/* Timeline */}
+          <div className="relative pl-2">
+             <div className="absolute left-[5px] top-[7px] bottom-[20px] w-0.5 bg-gradient-to-b from-emerald-500/50 to-rose-500/50" />
+             <div className="space-y-4">
+                <div className="flex gap-3 relative">
+                   <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-card z-10 mt-1" />
+                   <div className="min-w-0">
+                      <p className="text-[10px] text-muted-foreground uppercase font-bold">Pickup</p>
+                      <p className="text-xs font-medium line-clamp-1">{ride.sourceAddress}</p>
+                   </div>
                 </div>
-                <div>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Dropoff</p>
-                  <p className="font-medium text-sm leading-tight line-clamp-1">{ride.destAddress}</p>
+                <div className="flex gap-3 relative">
+                   <div className="h-2.5 w-2.5 rounded-full bg-rose-500 ring-4 ring-card z-10 mt-1" />
+                   <div className="min-w-0">
+                      <p className="text-[10px] text-muted-foreground uppercase font-bold">Dropoff</p>
+                      <p className="text-xs font-medium line-clamp-1">{ride.destAddress}</p>
+                   </div>
                 </div>
-              </div>
-            </div>
+             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs pt-2">
-            <div className="bg-muted/30 p-2 rounded flex items-center gap-2">
+          {/* Info Grid */}
+          <div className="grid grid-cols-2 gap-px bg-border/40 rounded-lg overflow-hidden border">
+            <div className="bg-muted/10 p-2.5 flex items-center gap-2">
               <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{dateLabel}</span>
+              <span className="text-xs font-medium">{dateLabel}</span>
             </div>
-            <div className="bg-muted/30 p-2 rounded flex items-center gap-2">
+            <div className="bg-muted/10 p-2.5 flex items-center gap-2">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{format(departureDate, "h:mm a")}</span>
+              <span className="text-xs font-medium">{format(departureDate, "h:mm a")}</span>
             </div>
-            <div className="bg-muted/30 p-2 rounded flex items-center gap-2">
+            <div className="bg-muted/10 p-2.5 flex items-center gap-2">
               <Users className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{booking.seatsBooked} seat(s)</span>
+              <span className="text-xs font-medium">{booking.seatsBooked} Seat(s)</span>
             </div>
-            <div className="bg-muted/30 p-2 rounded flex items-center gap-2 font-semibold">
+            <div className="bg-muted/10 p-2.5 flex items-center gap-2">
               <Banknote className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>Rs. {ride.costPerSeat * booking.seatsBooked}</span>
+              <span className="text-xs font-medium">Rs. {ride.costPerSeat * booking.seatsBooked}</span>
             </div>
           </div>
         </CardContent>
 
-        <CardFooter className="flex gap-2 pt-0 pb-4 px-4">
-          {viewAs === "driver" && booking.status === "pending" && (
-            <>
-              <Button variant="outline" className="flex-1 text-red-600 border-red-200 hover:bg-red-50" onClick={onReject}>
-                <X className="mr-2 h-4 w-4" /> Reject
-              </Button>
-              <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={onAccept}>
-                <Check className="mr-2 h-4 w-4" /> Accept
-              </Button>
-            </>
-          )}
+        {/* --- FOOTER: ACTION BAR --- */}
+        <CardFooter className="pt-0 pb-0 px-0 mt-auto border-t bg-muted/5">
+          {viewAs === "driver" ? (
+             /* DRIVER ACTIONS */
+             <div className="flex w-full p-3 gap-2">
+               {isPending ? (
+                 <>
+                   <Button variant="outline" size="sm" className="flex-1 border-red-200 text-red-600 hover:bg-red-50 h-9" onClick={onReject}>
+                      <X className="mr-1.5 h-3.5 w-3.5" /> Reject
+                   </Button>
+                   <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700 h-9" onClick={onAccept}>
+                      <Check className="mr-1.5 h-3.5 w-3.5" /> Accept
+                   </Button>
+                 </>
+               ) : (
+                 <Link href={`/chat/${getId(booking)}`} className="w-full">
+                    <Button variant="secondary" className="w-full h-9 muted/10 border shadow-sm">
+                       <MessageCircle className="mr-2 h-4 w-4 text-blue-500" /> Chat with Passenger
+                    </Button>
+                 </Link>
+               )}
+             </div>
+          ) : (
+             /* PASSENGER ACTIONS (4 Icons Grid) */
+             <div className="grid grid-cols-4 w-full divide-x divide-border/50">
+               
+               {/* 1. Detail */}
+               <Button 
+                  variant="ghost" 
+                  className="flex flex-col gap-1 h-14 rounded-none hover:bg-muted/50" 
+                  onClick={onViewDetails}
+               >
+                  <FileText className="h-4 w-4 text-foreground/70" />
+                  <span className="text-[10px] font-medium text-muted-foreground">Detail</span>
+               </Button>
 
-          {viewAs !== "driver" && (
-            <>
-              {(booking.status === "pending" || (booking.status === "accepted" && !isLive && !isCompleted)) && (
-                <Button variant="outline" className="w-full" onClick={onCancel}>
-                  <Ban className="mr-2 h-4 w-4" /> Cancel Request
-                </Button>
-              )}
+               {/* 2. Cancel */}
+               <Button 
+                  variant="ghost" 
+                  className="flex flex-col gap-1 h-14 rounded-none hover:bg-red-50 hover:text-red-600 disabled:opacity-30" 
+                  onClick={onCancel}
+                  disabled={!isPending && !(isAccepted && !isLive && !isRideCompleted)}
+               >
+                  <Ban className={cn("h-4 w-4", (isPending || (isAccepted && !isLive && !isRideCompleted)) ? "text-red-500" : "text-muted-foreground")} />
+                  <span className={cn("text-[10px] font-medium", (isPending || (isAccepted && !isLive && !isRideCompleted)) ? "text-red-500" : "text-muted-foreground")}>Cancel</span>
+               </Button>
 
-              {booking.status === "accepted" && isLive && (
-                <Button className="w-full bg-blue-600 hover:bg-blue-700 animate-pulse" onClick={onTrack}>
-                  <Navigation className="mr-2 h-4 w-4" /> Track Live
-                </Button>
-              )}
-              {booking.status === "accepted" && (
-                <Link href={`/chat/${booking.id}`} className="w-full">
-                  <Button variant="secondary" className="w-full mb-2">
-                    <MessageCircle className="mr-2 h-4 w-4" /> Chat
+               {/* 3. Chat */}
+               <Link href={isAccepted ? `/chat/${getId(booking)}` : "#"} className={cn("flex-1", !isAccepted && "pointer-events-none")}>
+                  <Button 
+                    variant="ghost" 
+                    className="flex flex-col gap-1 h-14 w-full rounded-none hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30" 
+                    disabled={!isAccepted}
+                  >
+                    <MessageCircle className={cn("h-4 w-4", isAccepted ? "text-blue-500" : "text-muted-foreground")} />
+                    <span className={cn("text-[10px] font-medium", isAccepted ? "text-blue-500" : "text-muted-foreground")}>Chat</span>
                   </Button>
-                </Link>
-              )}
-              {booking.status === "accepted" && isCompleted && (
-                <Button
-                  className="w-full"
-                  variant={hasReviewed ? "outline" : "secondary"}
-                  onClick={() => !hasReviewed && setRatingOpen(true)}
-                  disabled={hasReviewed}
-                >
-                  {hasReviewed ? (
-                    <> <Check className="mr-2 h-4 w-4" /> Reviewed </>
-                  ) : (
-                    <> <Star className="mr-2 h-4 w-4" /> Rate Driver </>
-                  )}
-                </Button>
-              )}
-            </>
+               </Link>
+
+               {/* 4. Live / Review */}
+               {isRideCompleted && isAccepted ? (
+                 <Button 
+                    variant="ghost" 
+                    className="flex flex-col gap-1 h-14 rounded-none hover:bg-yellow-50 hover:text-yellow-600"
+                    onClick={() => !hasReviewed && setRatingOpen(true)}
+                    disabled={hasReviewed}
+                 >
+                    {hasReviewed ? <Check className="h-4 w-4 text-green-500" /> : <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />}
+                    <span className="text-[10px] font-medium text-foreground">{hasReviewed ? "Done" : "Review"}</span>
+                 </Button>
+               ) : (
+                 <Button 
+                    variant="ghost" 
+                    className={cn(
+                      "flex flex-col gap-1 h-14 rounded-none transition-colors", 
+                      isLive ? "hover:bg-green-50 hover:text-green-600 animate-pulse bg-green-50/30" : "hover:bg-muted/50 disabled:opacity-30"
+                    )}
+                    onClick={onTrack}
+                    disabled={!isLive}
+                 >
+                    <Navigation className={cn("h-4 w-4", isLive ? "text-green-600" : "text-muted-foreground")} />
+                    <span className={cn("text-[10px] font-medium", isLive ? "text-green-600 font-bold" : "text-muted-foreground")}>
+                      {isLive ? "Track" : "Live"}
+                    </span>
+                 </Button>
+               )}
+             </div>
           )}
         </CardFooter>
       </Card>
 
+      {/* Review Dialog */}
       <Dialog open={ratingOpen} onOpenChange={setRatingOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Rate Driver</DialogTitle></DialogHeader>
+        <DialogContent className="w-[90%] rounded-xl">
+          <DialogHeader><DialogTitle>Rate Your Driver</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div>
               <Label className="mb-2 block">Rating</Label>
-              <Select value={rating} onValueChange={setRating}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="5">⭐⭐⭐⭐⭐ (Excellent)</SelectItem>
-                  <SelectItem value="4">⭐⭐⭐⭐ (Good)</SelectItem>
-                  <SelectItem value="3">⭐⭐⭐ (Average)</SelectItem>
-                  <SelectItem value="2">⭐⭐ (Poor)</SelectItem>
-                  <SelectItem value="1">⭐ (Terrible)</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex justify-center gap-2 mb-4">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Button
+                    key={star}
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 hover:bg-transparent"
+                    onClick={() => setRating(star.toString())}
+                  >
+                    <Star className={cn("h-8 w-8 transition-all", parseInt(rating) >= star ? "fill-yellow-400 text-yellow-400 scale-110" : "text-muted-foreground/30")} />
+                  </Button>
+                ))}
+              </div>
             </div>
             <div>
-              <Label className="mb-2 block">Comment</Label>
+              <Label className="mb-2 block">Comment (Optional)</Label>
               <Textarea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="How was the ride? Was the driver punctual?"
+                className="resize-none"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => submitReviewMutation.mutate()} disabled={submitReviewMutation.isPending}>
+            <Button onClick={() => submitReviewMutation.mutate()} disabled={submitReviewMutation.isPending} className="w-full bg-primary">
               {submitReviewMutation.isPending ? "Submitting..." : "Submit Review"}
             </Button>
           </DialogFooter>

@@ -26,7 +26,8 @@ export async function connectDB() {
     }
 
     global._mongooseConnectPromise = mongoose.connect(connectionString, {
-      serverSelectionTimeoutMS: 5000, // Fail faster if no internet/db
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
     }).then(() => {
       const logUri = connectionString.replace(/:([^:@]+)@/, ":****@");
       console.log(`✅ Connected to MongoDB: ${logUri}`);

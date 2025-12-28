@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -27,6 +26,7 @@ import { BookingCardSkeleton } from "@/components/loading-skeleton";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { BookingWithDetails } from "@shared/schema";
 import { Clock, Check, X, Calendar } from "lucide-react";
+import { cn } from "@/lib/utils"; // Ensure this is imported
 
 export default function Bookings() {
   const { user, activeRole } = useAuth();
@@ -41,7 +41,6 @@ export default function Bookings() {
     refetchInterval: 3000, 
   });
 
-  // ✅ HELPER: Safely extract ID from Object or String
   const getId = (item: any) => {
     if (!item) return null;
     return typeof item === 'object' ? item._id : item;
@@ -49,7 +48,7 @@ export default function Bookings() {
 
   const myBookings = bookings?.filter((b) => {
     if (activeRole === "driver") {
-      const ride = b.rideId as any; // Cast to access populated fields
+      const ride = b.rideId as any; 
       const rideDriverId = ride ? getId(ride.driverId) : null;
       const directDriverId = getId(b.driver);
       
@@ -62,12 +61,11 @@ export default function Bookings() {
   const pendingBookings = myBookings.filter((b) => b.status === "pending");
   const acceptedBookings = myBookings.filter((b) => b.status === "accepted");
   
-  // ✅ FIX: "Past" includes rejected/cancelled bookings OR accepted bookings where the RIDE is completed
   const pastBookings = myBookings.filter(
     (b) => 
       b.status === "rejected" || 
       b.status === "cancelled" || 
-      (b.ride && (b.ride as any).status === "completed") // Check Ride status, not Booking status
+      (b.ride && (b.ride as any).status === "completed") 
   );
 
   const handleBookingAction = useMutation({
@@ -90,13 +88,11 @@ export default function Bookings() {
       queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rides"] });
       const messages = {
-        accept: "Booking accepted successfully",
+        accept: "Booking accepted",
         reject: "Booking rejected",
         cancel: "Booking cancelled",
       };
-      toast({
-        title: messages[action],
-      });
+      toast({ title: messages[action] });
       setCancelDialogOpen(false);
       setBookingToCancel(null);
     },
@@ -121,7 +117,7 @@ export default function Bookings() {
   const renderBookingsList = (bookingsList: BookingWithDetails[]) => {
     if (isLoading) {
       return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           <BookingCardSkeleton />
           <BookingCardSkeleton />
           <BookingCardSkeleton />
@@ -136,15 +132,16 @@ export default function Bookings() {
           title="No bookings found"
           description={
             activeRole === "driver"
-              ? "When passengers request seats on your rides, they'll appear here."
-              : "When you request seats on rides, your bookings will appear here."
+              ? "Requests from passengers will appear here."
+              : "Your ride requests will appear here."
           }
+          className="mt-8"
         />
       );
     }
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {bookingsList.map((booking) => (
           <BookingCard
             key={booking.id}
@@ -174,93 +171,117 @@ export default function Bookings() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container px-4 py-8">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+    // ✅ 1. Mobile-First Container (pb-24 for Nav Bar)
+    <div className="min-h-screen bg-muted/5 pb-24 md:pb-8">
+      <div className="container px-4 py-6 max-w-6xl mx-auto">
+        
+        {/* ✅ 2. Responsive Header (Stack on mobile, Row on desktop) */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold">Bookings</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Bookings</h1>
+            <p className="text-sm text-muted-foreground">
               {activeRole === "driver"
-                ? "Manage booking requests from passengers"
-                : "Track your ride bookings"}
+                ? "Manage requests from passengers"
+                : "Track your current and past rides"}
             </p>
           </div>
-          <RoleToggle />
+          <div className="w-full md:w-auto">
+             <RoleToggle />
+          </div>
         </div>
 
         <Tabs defaultValue="pending" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="pending" className="gap-2" data-testid="tab-pending">
-              <Clock className="h-4 w-4" />
-              Pending ({pendingBookings.length})
-            </TabsTrigger>
-            <TabsTrigger value="accepted" className="gap-2" data-testid="tab-accepted">
-              <Check className="h-4 w-4" />
-              Accepted ({acceptedBookings.length})
-            </TabsTrigger>
-            <TabsTrigger value="past" className="gap-2" data-testid="tab-past">
-              <X className="h-4 w-4" />
-              Past ({pastBookings.length})
-            </TabsTrigger>
-          </TabsList>
+          {/* ✅ 3. Scrollable Tabs Wrapper */}
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0 md:pb-0 scrollbar-hide">
+              <TabsList className="w-full md:w-auto inline-flex h-11 md:h-10 p-1 bg-muted/80 backdrop-blur rounded-xl">
+                
+                <TabsTrigger value="pending" className="gap-2 flex-1 md:flex-none px-4 md:px-6 h-9 rounded-lg data-[state=active]:shadow-sm">
+                  <Clock className="h-4 w-4" />
+                  <span>Pending</span>
+                </TabsTrigger>
 
-          <TabsContent value="pending">
+                <TabsTrigger value="accepted" className="gap-2 flex-1 md:flex-none px-4 md:px-6 h-9 rounded-lg data-[state=active]:shadow-sm">
+                  <Check className="h-4 w-4" />
+                  <span>Accepted</span>
+                </TabsTrigger>
+
+                <TabsTrigger value="past" className="gap-2 flex-1 md:flex-none px-4 md:px-6 h-9 rounded-lg data-[state=active]:shadow-sm">
+                  <X className="h-4 w-4" />
+                  <span>Past</span>
+                </TabsTrigger>
+
+              </TabsList>
+          </div>
+
+          <TabsContent value="pending" className="animate-in slide-in-from-left-2 duration-300">
             {renderBookingsList(pendingBookings)}
           </TabsContent>
 
-          <TabsContent value="accepted">
+          <TabsContent value="accepted" className="animate-in slide-in-from-right-2 duration-300">
             {renderBookingsList(acceptedBookings)}
           </TabsContent>
 
-          <TabsContent value="past">
+          <TabsContent value="past" className="animate-in fade-in zoom-in-95 duration-300">
             {renderBookingsList(pastBookings)}
           </TabsContent>
         </Tabs>
       </div>
 
+      {/* ✅ 4. Tracking Dialog - Mobile Sizing */}
       <Dialog open={!!trackingRide} onOpenChange={() => setTrackingRide(null)}>
-        <DialogContent className="max-w-3xl h-[80vh] p-0">
+        <DialogContent className="max-w-3xl w-[95%] h-[80vh] md:h-[600px] p-0 gap-0 border-none overflow-hidden shadow-2xl rounded-xl">
           {trackingRide && (
-            <MapComponent
-              center={[
-                trackingRide.currentLat || trackingRide.sourceLat,
-                trackingRide.currentLng || trackingRide.sourceLng
-              ]}
-              zoom={14}
-              markers={[
-                {
-                  position: [
-                    trackingRide.currentLat || trackingRide.sourceLat,
-                    trackingRide.currentLng || trackingRide.sourceLng
-                  ],
-                  label: "Driver (Live)",
-                  type: "driver"
-                },
-                {
-                  position: [trackingRide.destLat, trackingRide.destLng],
-                  label: "Destination",
-                  type: "destination"
-                }
-              ]}
-            />
+            <div className="relative h-full w-full">
+              <MapComponent
+                center={[
+                  trackingRide.currentLat || trackingRide.sourceLat,
+                  trackingRide.currentLng || trackingRide.sourceLng
+                ]}
+                zoom={14}
+                markers={[
+                  {
+                    position: [
+                      trackingRide.currentLat || trackingRide.sourceLat,
+                      trackingRide.currentLng || trackingRide.sourceLng
+                    ],
+                    label: "Driver (Live)",
+                    type: "driver"
+                  },
+                  {
+                    position: [trackingRide.destLat, trackingRide.destLng],
+                    label: "Destination",
+                    type: "destination"
+                  }
+                ]}
+                className="h-full w-full"
+              />
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="absolute top-4 right-4 shadow-md bg-white/90 hover:bg-white"
+                onClick={() => setTrackingRide(null)}
+              >
+                Close Map
+              </Button>
+            </div>
           )}
         </DialogContent>
       </Dialog>
 
+      {/* ✅ 5. Cancel Dialog - Mobile Sizing */}
       <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="w-[90%] max-w-[400px] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel this booking? This action cannot be
-              undone.
+              Are you sure you want to cancel this booking? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-lg mt-2 sm:mt-0">Keep Booking</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmCancel}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg"
             >
               Cancel Booking
             </AlertDialogAction>
