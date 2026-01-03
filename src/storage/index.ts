@@ -7,6 +7,7 @@ import { ReviewModel } from "../models/Review";
 import { MessageModel } from "../models/Message";
 import { randomUUID } from "crypto";
 import Ably from 'ably';
+import bcrypt from 'bcrypt';
 
 function stripPassword(user: any): User {
   const { password, ...safeUser } = user;
@@ -115,11 +116,15 @@ export class MongoStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const doc = await UserModel.create({ _id: id, ...insertUser } as any);
+    const hashedPassword = await bcrypt.hash(insertUser.password, 10);
+    const doc = await UserModel.create({ _id: id, ...insertUser, password: hashedPassword } as any);
     return this.mapDoc<User>(doc);
   }
 
   async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
+    if (data.password) {
+      data.password = await bcrypt.hash(data.password, 10);
+    }
     const doc = await UserModel.findByIdAndUpdate(id, data as any, { new: true });
     return doc ? this.mapDoc<User>(doc) : undefined;
   }

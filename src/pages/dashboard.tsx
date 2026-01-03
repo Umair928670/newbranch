@@ -41,7 +41,8 @@ import {
   BellRing,
   List,
   Navigation,
-  X
+  X,
+  ArrowUpDown
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -203,7 +204,7 @@ export default function Dashboard() {
                      <div className="h-2.5 w-2.5 bg-white rounded-full animate-pulse shadow-[0_0_10px_rgba(255,255,255,0.8)]" />
                      <div>
                        <h2 className="font-bold text-base md:text-lg">Ride is Live</h2>
-                       <p className="text-[10px] md:text-xs text-emerald-100 opacity-90">Heading to {ongoingRide.destAddress}</p>
+                       <p className="text-[10px] md:text-xs text-emerald-100 opacity-90 line-clamp-2">Heading to {ongoingRide.destAddress}</p>
                      </div>
                   </div>
                   <Button 
@@ -359,10 +360,10 @@ export default function Dashboard() {
                                    </Avatar>
                                    <div>
                                       <p className="font-bold text-sm">{booking.passengerId?.name}</p>
-                                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
-                                         <span>To:</span>
-                                         <span className="font-medium text-foreground">{rideInfo?.destAddress}</span>
-                                      </div>
+                                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
+                                          <span>To:</span>
+                                          <span className="font-medium text-foreground line-clamp-2 max-w-[220px] md:max-w-[300px] block">{rideInfo?.destAddress}</span>
+                                        </div>
                                    </div>
                                 </div>
                                 <div className="text-right">
@@ -460,33 +461,70 @@ export default function Dashboard() {
         
         {/* Header */}
         <div className="p-4 border-b bg-background z-20">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col items-start justify-between mb-4">
              <h1 className="text-lg md:text-xl font-bold">Find a Ride</h1>
+             <p className="text-sm text-muted-foreground">Enter your pickup and dropoff locations</p>
              <div className="hidden lg:block"><RoleToggle /></div>
           </div>
+          {/* Search Inputs - Mobile-first (compact row) */}
+          <div className="block lg:hidden">
+            <div className="rounded-md border bg-card shadow-sm p-2">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <MapPin className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600" />
+                  <Input
+                    placeholder="From"
+                    value={pickupSearch}
+                    onChange={(e) => setPickupSearch(e.target.value)}
+                    className="pl-8 h-9 text-sm bg-background border-transparent shadow-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => { const tmp = pickupSearch; setPickupSearch(dropoffSearch); setDropoffSearch(tmp); }}
+                  title="Swap"
+                >
+                  <ArrowUpDown className="h-4 w-4" />
+                </Button>
+                <div className="relative flex-1 min-w-0">
+                  <MapPin className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-rose-600" />
+                  <Input
+                    placeholder="To"
+                    value={dropoffSearch}
+                    onChange={(e) => setDropoffSearch(e.target.value)}
+                    className="pl-8 h-9 text-sm bg-background border-transparent shadow-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
 
-          {/* Styled Search Inputs (Uber Style) */}
-          <div className="bg-muted/30 p-4 rounded-xl border space-y-0 relative">
-             <div className="absolute left-[27px] top-[28px] bottom-[28px] w-0.5 bg-border z-0"></div>
-             <div className="relative z-10 mb-3">
-               <div className="absolute left-3 top-3 h-2 w-2 rounded-full bg-emerald-500 ring-4 ring-background"></div>
-               <Input 
-                 placeholder="From (e.g. Pindi Gheb)" 
-                 value={pickupSearch} 
-                 onChange={(e) => setPickupSearch(e.target.value)} 
-                 className="pl-8 bg-background border-transparent shadow-none focus-visible:ring-0 focus-visible:bg-background h-10 text-sm" 
-               />
-             </div>
-             <Separator className="my-2" />
-             <div className="relative z-10 mt-3">
-               <div className="absolute left-3 top-3 h-2 w-2 rounded-full bg-rose-500 ring-4 ring-background"></div>
-               <Input 
-                 placeholder="To (e.g. University)" 
-                 value={dropoffSearch} 
-                 onChange={(e) => setDropoffSearch(e.target.value)} 
-                 className="pl-8 bg-background border-transparent shadow-none focus-visible:ring-0 focus-visible:bg-background h-10 text-sm" 
-               />
-             </div>
+          {/* Desktop/Tablet search (roomier) */}
+          <div className="hidden lg:block">
+            <div className="rounded-xl border bg-card shadow-sm p-3">
+              <div className="space-y-3">
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600" />
+                  <Input
+                    placeholder="From (e.g. Pindi Gheb)"
+                    value={pickupSearch}
+                    onChange={(e) => setPickupSearch(e.target.value)}
+                    className="pl-9 h-10 text-sm bg-background border-transparent shadow-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-rose-600" />
+                  <Input
+                    placeholder="To (e.g. University)"
+                    value={dropoffSearch}
+                    onChange={(e) => setDropoffSearch(e.target.value)}
+                    className="pl-9 h-10 text-sm bg-background border-transparent shadow-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -501,7 +539,6 @@ export default function Dashboard() {
                   key={ride.id}
                   ride={ride}
                   bookingStatus={getMyBookingStatus(ride.id)} 
-                  onViewDetails={() => setSelectedRide(ride)} 
                   onBook={(seats) => createBookingMutation.mutate({ rideId: ride.id, seats })} 
                 />
               ))
@@ -545,124 +582,6 @@ export default function Dashboard() {
            </Button>
         </div>
       )}
-
-      {/* --- RIDE DETAIL DIALOG --- */}
-      <Dialog open={!!selectedRide} onOpenChange={(open) => !open && setSelectedRide(null)}>
-        <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden border-none shadow-2xl flex flex-col md:flex-row h-[85vh] md:h-[500px]">
-          <div className="w-full md:w-1/2 h-40 md:h-full relative bg-muted/20">
-            {selectedRide && (
-              <MapComponent
-                center={[selectedRide.sourceLat, selectedRide.sourceLng]}
-                zoom={11}
-                markers={[
-                  { position: [selectedRide.sourceLat, selectedRide.sourceLng], type: "source" },
-                  { position: [selectedRide.destLat, selectedRide.destLng], type: "destination" }
-                ]}
-                interactive={true}
-                className="h-full w-full"
-              />
-            )}
-          </div>
-
-          <div className="w-full md:w-1/2 flex flex-col p-5 md:p-6 h-full overflow-y-auto bg-background">
-            {selectedRide && (
-              <>
-                <div className="flex items-start justify-between mb-6">
-                  <div className="flex items-center gap-3 md:gap-4">
-                    <Avatar className="h-12 w-12 md:h-14 md:w-14 border-2 border-border">
-                      <AvatarImage src={selectedRide.driver?.avatar || undefined} />
-                      <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                        {getInitials(selectedRide.driver?.name || "D")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-base md:text-lg leading-none">{selectedRide.driver?.name}</h3>
-                        {selectedRide.driver?.cnicStatus === "verified" && (
-                          <ShieldCheck className="h-3.5 w-3.5 md:h-4 md:w-4 text-emerald-600" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs md:text-sm text-muted-foreground mt-1">
-                        <span className="flex items-center gap-1 text-[10px] md:text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-sm dark:bg-amber-900/30 dark:text-amber-400">
-                          <Star className="h-3 w-3 fill-current" /> 4.8
-                        </span>
-                        <span>{selectedRide.vehicle?.model || "Car"}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xl md:text-2xl font-bold text-primary">Rs.{selectedRide.costPerSeat}</div>
-                    <div className="text-[10px] md:text-xs text-muted-foreground">per seat</div>
-                  </div>
-                </div>
-
-                <Separator className="mb-6" />
-
-                <div className="space-y-6 flex-1">
-                  <div className="flex gap-4">
-                    <div className="flex flex-col items-center pt-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
-                      <div className="w-0.5 h-full bg-border min-h-[3rem] my-1" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-rose-500/20" />
-                    </div>
-                    <div className="space-y-6 flex-1">
-                      <div>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Pickup</p>
-                        <p className="text-sm font-medium leading-snug">{selectedRide.sourceAddress}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Dropoff</p>
-                        <p className="text-sm font-medium leading-snug">{selectedRide.destAddress}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 pt-2">
-                    <div className="bg-muted/30 p-2.5 rounded-lg text-center">
-                       <Calendar className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                       <div className="text-xs font-medium">{format(new Date(selectedRide.departureTime), "MMM d")}</div>
-                    </div>
-                    <div className="bg-muted/30 p-2.5 rounded-lg text-center">
-                       <Clock className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                       <div className="text-xs font-medium">{format(new Date(selectedRide.departureTime), "h:mm a")}</div>
-                    </div>
-                    <div className="bg-muted/30 p-2.5 rounded-lg text-center">
-                       <Users className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-                       <div className={cn("text-xs font-medium", selectedRide.seatsAvailable === 0 && "text-red-600")}>
-                         {selectedRide.seatsAvailable} Left
-                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-auto pt-6 flex gap-3">
-                  <Button variant="outline" onClick={() => setSelectedRide(null)} className="flex-1 h-11 md:h-12 text-sm">
-                    Close
-                  </Button>
-                  <Button
-                    onClick={() => createBookingMutation.mutate({ rideId: selectedRide.id, seats: 1 })}
-                    disabled={createBookingMutation.isPending || selectedRide.seatsAvailable === 0 || !!myStatus}
-                    className={cn(
-                      "flex-[2] h-11 md:h-12 text-sm md:text-base font-semibold shadow-md transition-all",
-                      myStatus === 'accepted' ? "bg-emerald-600 hover:bg-emerald-700" : ""
-                    )}
-                  >
-                    {myStatus === 'accepted' ? (
-                      <><Check className="mr-2 h-4 w-4 md:h-5 md:w-5" /> Accepted</>
-                    ) : myStatus === 'pending' ? (
-                      <><Loader2 className="mr-2 h-4 w-4 md:h-5 md:w-5 animate-spin" /> Requested</>
-                    ) : createBookingMutation.isPending ? (
-                      <><Loader2 className="mr-2 h-4 w-4 md:h-5 md:w-5 animate-spin" /> Sending...</>
-                    ) : (
-                      "Request Ride"
-                    )}
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

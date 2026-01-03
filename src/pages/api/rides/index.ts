@@ -3,6 +3,7 @@ import { connectDB } from "@/db";
 import { storage } from "@/storage";
 import { insertRideSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
+import Ably from 'ably';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -18,6 +19,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const result = insertRideSchema.safeParse(req.body);
       if (!result.success) return res.status(400).json({ message: fromZodError(result.error).message });
       const ride = await storage.createRide(result.data as any);
+
+      // Publish ride creation
+      try {
+        const ably = new Ably.Rest(process.env.ABLY_API_KEY || 'Missing_Key');
+        const rideChannel = ably.channels.get(`ride:${ride.id}`);
+        await rideChannel.publish('ride.created', ride);
+      } catch (err) {
+        console.error('Ably publish failed for ride.created', err);
+      }
+
       return res.json(ride);
     }
 

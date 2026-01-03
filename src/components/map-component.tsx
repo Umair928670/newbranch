@@ -96,8 +96,18 @@ export function MapComponent({
         scrollWheelZoom: interactive,
       });
 
-      L.default.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      const isDark = (typeof window !== 'undefined' && (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches))
+        || (typeof document !== 'undefined' && document.documentElement.classList.contains('dark'));
+
+      const tileUrl = isDark
+        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      const attribution = isDark
+        ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+      const tileLayer = L.default.tileLayer(tileUrl, {
+        attribution,
         maxZoom: 19,
       }).addTo(map);
 
@@ -107,11 +117,12 @@ export function MapComponent({
         });
       }
 
-      mapInstanceRef.current = { map, L: L.default, sourceIcon, destIcon, driverIcon };
+      mapInstanceRef.current = { map, L: L.default, sourceIcon, destIcon, driverIcon, tileLayer, isDark };
       setIsLoaded(true);
 
       return () => {
         if (mapInstanceRef.current) {
+          try { mapInstanceRef.current.tileLayer && mapInstanceRef.current.tileLayer.remove(); } catch {}
           mapInstanceRef.current.map.remove();
           mapInstanceRef.current = null;
         }
@@ -147,8 +158,9 @@ export function MapComponent({
     routesRef.current = [];
 
     routes.forEach((route) => {
+      const defaultColor = mapInstanceRef.current?.isDark ? "#60a5fa" : "#2563eb";
       const polyline = L.polyline(route.coordinates, {
-        color: route.color || "#2563eb",
+        color: route.color || defaultColor,
         weight: 4,
         opacity: 0.8,
       }).addTo(map);

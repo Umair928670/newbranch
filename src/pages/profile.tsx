@@ -69,6 +69,8 @@ export default function Profile() {
   const { user, login } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("personal");
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
   
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const cnicInputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +120,7 @@ export default function Profile() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: [user?.id ? `/api/vehicles?ownerId=${user.id}` : ""] });
       toast({ title: "Vehicle updated successfully" });
     },
   });
@@ -151,21 +153,108 @@ export default function Profile() {
   const cnicStatus = cnicStatusConfig[user?.cnicStatus || "not_uploaded"];
   const CnicIcon = cnicStatus.icon;
 
+  // --- SWIPE NAVIGATION (mobile): drag left/right to switch tabs ---
+  const getTabOrder = () => (user?.role !== "passenger" ? ["personal", "vehicle", "verification"] : ["personal"]);
+  const goNextTab = () => {
+    const order = getTabOrder();
+    const idx = order.indexOf(activeTab);
+    if (idx < order.length - 1) setActiveTab(order[idx + 1]);
+  };
+  const goPrevTab = () => {
+    const order = getTabOrder();
+    const idx = order.indexOf(activeTab);
+    if (idx > 0) setActiveTab(order[idx - 1]);
+  };
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    touchStartX.current = e.changedTouches[0].clientX;
+    touchEndX.current = null;
+  };
+  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    touchEndX.current = e.changedTouches[0].clientX;
+    if (touchStartX.current == null || touchEndX.current == null) return;
+    const delta = touchStartX.current - touchEndX.current;
+    const threshold = 60; // px
+    if (delta > threshold) {
+      // swipe left -> next tab
+      goNextTab();
+    } else if (delta < -threshold) {
+      // swipe right -> previous tab
+      goPrevTab();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-muted/5">
-      <div className="container px-4 py-10 max-w-7xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Account Settings</h1>
-          <p className="text-muted-foreground mt-1">Manage your profile details and preferences.</p>
+      <div className="container px-4 py-6 max-w-7xl">
+        {/* Page Hero - Modern, compact summary */}
+        <Card className="mb-4 rounded-2xl border-0 shadow-md bg-gradient-to-br from-primary/10 via-card to-card">
+          <CardContent className="p-4 md:p-6 relative">
+            <div className="flex items-center gap-4 md:gap-6">
+              {/* Avatar with quick edit */}
+              <div 
+                className="relative group cursor-pointer w-16 h-16 md:w-20 md:h-20"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                <Avatar className="w-full h-full ring-2 ring-primary/20 shadow-sm">
+                  <AvatarImage src={user?.avatar || undefined} className="object-cover" />
+                  <AvatarFallback className="text-lg md:text-xl bg-primary/90 text-primary-foreground font-bold">
+                    {getInitials(user?.name || "U")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="absolute bottom-0 right-0 bg-primary text-white p-1.5 rounded-full border-2 border-background shadow-sm group-hover:bg-primary/90 transition-colors">
+                  <Camera className="h-3.5 w-3.5" />
+                </div>
+                <input 
+                  type="file" ref={avatarInputRef} className="hidden" accept="image/*"
+                  onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], "avatar")}
+                />
+              </div>
+
+              {/* Identity summary */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">{user?.name}</h1>
+                  {user?.cnicStatus === "verified" && (
+                    <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 h-6">Verified</Badge>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="truncate max-w-[180px] md:max-w-[260px] flex items-center gap-1">
+                    <Mail className="h-4 w-4" /> {user?.email}
+                  </span>
+                  <Badge variant="secondary" className="capitalize">{user?.role === 'both' ? 'Driver & Passenger' : (user?.role || 'passenger')}</Badge>
+                </div>
+              </div>
+
+              {/* Quick action */}
+              <div className="hidden sm:block">
+                <Button variant="outline" onClick={() => setActiveTab("personal")}>Edit Profile</Button>
+              </div>
+            </div>
+
+            
+          </CardContent>
+        </Card>
+        <div className="flex justify-end mb-4">
+          <div className="flex items-center gap-2">
+            {getTabOrder().map((tab) => (
+              <button
+                key={tab}
+                aria-label={`Go to ${tab} section`}
+                onClick={() => setActiveTab(tab)}
+                className={`rounded-full transition-all duration-200 ${activeTab === tab ? 'bg-primary h-2.5 w-2.5' : 'bg-muted-foreground/30 h-2 w-2 hover:bg-muted-foreground/50'}`}
+              />
+            ))}
+          </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col lg:flex-row gap-8">
           
           {/* --- LEFT SIDEBAR (Refined Design) --- */}
-          <aside className="w-full lg:w-72 shrink-0 space-y-6">
+          <aside className="hidden lg:block lg:w-72 shrink-0 space-y-6">
             
-            {/* Profile Summary Card */}
-            <div className="bg-card border rounded-xl p-6 text-center shadow-sm">
+            {/* Profile Summary Card (desktop only, hero covers mobile) */}
+            <div className="bg-card border rounded-xl p-6 text-center shadow-sm hidden lg:block">
               <div 
                 className="relative group cursor-pointer w-24 h-24 mx-auto mb-4"
                 onClick={() => avatarInputRef.current?.click()}
@@ -237,7 +326,7 @@ export default function Profile() {
           </aside>
 
           {/* --- RIGHT CONTENT AREA --- */}
-          <div className="flex-1 space-y-6">
+          <div className="flex-1 space-y-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
             
             {/* TAB 1: PERSONAL INFO */}
             <TabsContent value="personal" className="mt-0 focus-visible:ring-0">

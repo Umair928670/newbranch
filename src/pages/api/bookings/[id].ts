@@ -41,8 +41,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const rideDoc = await RideModel.findById(bookingDoc.rideId).session(session);
             if (!rideDoc) throw { code: 404, message: 'Ride not found' };
 
-            // Authorization: only ride's driver can change booking status
-            if (String(rideDoc.driverId) !== String(userId)) throw { code: 401, message: 'Not authorized' };
+            // Authorization:
+            // - accept/reject: only the ride's driver
+            // - cancel: driver OR the passenger who owns the booking
+            const isDriver = String(rideDoc.driverId) === String(userId);
+            const isPassenger = String(bookingDoc.passengerId) === String(userId);
+
+            if (status === 'accepted' || status === 'rejected') {
+              if (!isDriver) throw { code: 401, message: 'Not authorized' };
+            } else if (status === 'cancelled') {
+              if (!isDriver && !isPassenger) throw { code: 401, message: 'Not authorized' };
+            }
 
             if (status === 'accepted') {
 
@@ -97,6 +106,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             await driverChannel.publish('booking.updated', { booking: updatedBooking, ride });
             console.log(`Ably: published booking.updated -> driver:${ride.driverId}`);
             try { fs.appendFileSync(ABLY_LOG_PATH, `published booking.updated -> driver:${ride.driverId}\n`); } catch {};
+
+            // Also notify passenger
+            const passengerChannel = ably.channels.get(`passenger:${updatedBooking.passengerId}`);
+            console.log(`Ably: publishing booking.updated -> passenger:${updatedBooking.passengerId}`);
+            try { fs.appendFileSync(ABLY_LOG_PATH, `publishing booking.updated -> passenger:${updatedBooking.passengerId}\n`); } catch {};
+            await passengerChannel.publish('booking.updated', { booking: updatedBooking, ride });
+            console.log(`Ably: published booking.updated -> passenger:${updatedBooking.passengerId}`);
+            try { fs.appendFileSync(ABLY_LOG_PATH, `published booking.updated -> passenger:${updatedBooking.passengerId}\n`); } catch {};
           }
         } catch (err) {
           console.error('Ably publish failed for booking.updated', err);
@@ -122,6 +139,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           try { fs.appendFileSync(ABLY_LOG_PATH, `publishing booking.updated -> driver:${ride.driverId}\n`); } catch {};
           await driverChannel.publish('booking.updated', { booking, ride });
           try { fs.appendFileSync(ABLY_LOG_PATH, `published booking.updated -> driver:${ride.driverId}\n`); } catch {};
+
+          // Also notify passenger
+          const passengerChannel = ably.channels.get(`passenger:${booking.passengerId}`);
+          try { fs.appendFileSync(ABLY_LOG_PATH, `publishing booking.updated -> passenger:${booking.passengerId}\n`); } catch {};
+          await passengerChannel.publish('booking.updated', { booking, ride });
+          try { fs.appendFileSync(ABLY_LOG_PATH, `published booking.updated -> passenger:${booking.passengerId}\n`); } catch {};
         }
       } catch (err) {
         console.warn('Ably publish failed for booking.updated', err);

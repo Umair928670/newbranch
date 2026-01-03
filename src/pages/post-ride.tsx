@@ -94,19 +94,71 @@ export default function PostRide() {
   const [selectingLocation, setSelectingLocation] = useState<"source" | "dest" | null>(null);
 
   const { data: vehicles } = useQuery<Vehicle[]>({
-    queryKey: ["/api/vehicles", user?.id],
+    queryKey: [
+      user?.id ? `/api/vehicles?ownerId=${user.id}` : ""
+    ],
     enabled: !!user?.id,
   });
+
+  // Geocode helper: converts a free-text address to lat/lng using OpenStreetMap Nominatim
+  const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number; displayName: string } | null> => {
+    try {
+      const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(address)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data;
+    } catch {
+      return null;
+    }
+  };
+
+  // Reverse geocode: converts lat/lng to a readable place name
+  const reverseGeocode = async (lat: number, lng: number): Promise<string | null> => {
+    try {
+      const res = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.displayName || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleAddressBlur = async (type: "source" | "dest", value: string) => {
+    // Only geocode when user entered a non-empty text and lat/lng are not set yet
+    if (!value || value.trim().length < 3) return;
+    const existingLat = type === "source" ? form.getValues("sourceLat") : form.getValues("destLat");
+    const existingLng = type === "source" ? form.getValues("sourceLng") : form.getValues("destLng");
+    if (existingLat && existingLng && existingLat !== 0 && existingLng !== 0) return;
+
+    const result = await geocodeAddress(value);
+    if (!result) {
+      toast({ title: "Location not found", description: "Try a more specific address (e.g., include city and country)", variant: "destructive" });
+      return;
+    }
+
+    if (type === "source") {
+      form.setValue("sourceLat", result.lat, { shouldValidate: true });
+      form.setValue("sourceLng", result.lng, { shouldValidate: true });
+      form.setValue("sourceAddress", result.displayName);
+      toast({ title: "Pickup located", description: `${result.lat.toFixed(4)}, ${result.lng.toFixed(4)}` });
+    } else {
+      form.setValue("destLat", result.lat, { shouldValidate: true });
+      form.setValue("destLng", result.lng, { shouldValidate: true });
+      form.setValue("destAddress", result.displayName);
+      toast({ title: "Dropoff located", description: `${result.lat.toFixed(4)}, ${result.lng.toFixed(4)}` });
+    }
+  };
 
   const form = useForm<RideFormData>({
     resolver: zodResolver(rideSchema),
     defaultValues: {
-      sourceAddress: defaultLocations.pindiGheb.address,
-      sourceLat: defaultLocations.pindiGheb.lat,
-      sourceLng: defaultLocations.pindiGheb.lng,
-      destAddress: defaultLocations.university.address,
-      destLat: defaultLocations.university.lat,
-      destLng: defaultLocations.university.lng,
+      sourceAddress: "",
+      sourceLat: 0,
+      sourceLng: 0,
+      destAddress: "",
+      destLat: 0,
+      destLng: 0,
       departureDate: new Date(),
       departureTime: "07:00",
       seatsTotal: 3,
@@ -121,7 +173,13 @@ export default function PostRide() {
       return res.json();
     },
     onSuccess: () => {
+      // Ensure relevant ride lists are refreshed immediately after posting
       queryClient.invalidateQueries({ queryKey: ["/api/rides"] });
+      if (user?.id) {
+        queryClient.invalidateQueries({ queryKey: [
+          `/api/rides?driverId=${user.id}`
+        ] });
+      }
       toast({
         title: "Ride posted!",
         description: "Your ride is now visible to passengers.",
@@ -142,6 +200,25 @@ export default function PostRide() {
       toast({
         title: "Error",
         description: "You must be logged in to post a ride",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate that locations are properly set
+    if (!data.sourceAddress || data.sourceLat === 0 || data.sourceLng === 0) {
+      toast({
+        title: "Pickup location required",
+        description: "Please enter or select a pickup location",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!data.destAddress || data.destLat === 0 || data.destLng === 0) {
+      toast({
+        title: "Dropoff location required",
+        description: "Please enter or select a dropoff location",
         variant: "destructive",
       });
       return;
@@ -172,15 +249,36 @@ export default function PostRide() {
     createRideMutation.mutate(rideData);
   };
 
-  const handleMapClick = (lat: number, lng: number) => {
-    if (selectingLocation === "source") {
+  const handleMapClick = async (lat: number, lng: number) => {
+    // Prefer explicit selection; otherwise, fill whichever is missing first
+    const fillSource = selectingLocation === "source" || (!form.getValues("sourceLat") || form.getValues("sourceLat") === 0);
+    const fillDest = selectingLocation === "dest" || (!form.getValues("destLat") || form.getValues("destLat") === 0);
+
+    const name = await reverseGeocode(lat, lng);
+    const label = name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+    if (fillSource && !selectingLocation) {
+      // If both missing and no selection, fill source first
       form.setValue("sourceLat", lat);
       form.setValue("sourceLng", lng);
-      form.setValue("sourceAddress", `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    } else if (selectingLocation === "dest") {
+      form.setValue("sourceAddress", label);
+      toast({ title: "Pickup location selected", description: label });
+    } else if (selectingLocation === "source") {
+      form.setValue("sourceLat", lat);
+      form.setValue("sourceLng", lng);
+      form.setValue("sourceAddress", label);
+      toast({ title: "Pickup location selected", description: label });
+    } else if (fillDest) {
       form.setValue("destLat", lat);
       form.setValue("destLng", lng);
-      form.setValue("destAddress", `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      form.setValue("destAddress", label);
+      toast({ title: "Dropoff location selected", description: label });
+    } else {
+      // If both already set and no explicit selection, default to updating destination
+      form.setValue("destLat", lat);
+      form.setValue("destLng", lng);
+      form.setValue("destAddress", label);
+      toast({ title: "Dropoff location updated", description: label });
     }
     setSelectingLocation(null);
   };
@@ -191,363 +289,442 @@ export default function PostRide() {
   const destLng = form.watch("destLng");
 
   const mapMarkers = [
-    {
+    ...(sourceLat && sourceLng && sourceLat !== 0 && sourceLng !== 0 ? [{
       position: [sourceLat, sourceLng] as [number, number],
       label: "Pickup Location",
       type: "source" as const,
-    },
-    {
+    }] : []),
+    ...(destLat && destLng && destLat !== 0 && destLng !== 0 ? [{
       position: [destLat, destLng] as [number, number],
       label: "Dropoff Location",
       type: "destination" as const,
-    },
+    }] : []),
   ];
 
   const mapRoutes = [
-    {
-      coordinates: [
-        [sourceLat, sourceLng] as [number, number],
-        [destLat, destLng] as [number, number],
-      ],
-      color: "#2563eb",
-    },
+    ...(sourceLat && sourceLng && destLat && destLng &&
+      sourceLat !== 0 && sourceLng !== 0 && destLat !== 0 && destLng !== 0 ? [{
+        coordinates: [
+          [sourceLat, sourceLng] as [number, number],
+          [destLat, destLng] as [number, number],
+        ],
+        color: "#2563eb",
+      }] : []),
   ];
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container max-w-6xl px-4 py-8">
-        <Button
-          variant="ghost"
-          onClick={() => router.push("/dashboard")}
-          className="mb-6 gap-2"
-          data-testid="button-back"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Button>
+      <div className="container max-w-4xl px-4 py-4 sm:py-6 lg:py-8">
 
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Post a New Ride</h1>
-          <p className="text-muted-foreground">
-            Share your journey and connect with passengers
-          </p>
+        {/* Header - Responsive */}
+        <div className="flex items-center gap-0 mb-2 sm:mb-8">
+          <Button
+            variant="ghost"
+            onClick={() => router.push("/dashboard")}
+            className="gap-1 h-7 px-2 sm:h-10 sm:px-4"
+            data-testid="button-back"
+          >
+            <ArrowLeft className="h-3 w-3" />
+          </Button>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-sm sm:text-base text-muted-foreground mt-0">
+              Back to Dashboard
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div>
-            <Form {...form}>
-              {/* ... form content remains same ... */}
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                 {/* ... Cards for Route, Schedule, Ride Details ... */}
-                 {/* (Content matches original file) */}
-                 <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <MapPin className="h-5 w-5" />
-                      Route Details
-                    </CardTitle>
-                    <CardDescription>
-                      Click the map or enter addresses manually
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="sourceAddress"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Pickup Location</FormLabel>
-                          <div className="flex gap-2">
-                            <FormControl>
-                              <Input
-                                placeholder="Enter pickup address"
-                                {...field}
-                                data-testid="input-source-address"
-                              />
-                            </FormControl>
-                            <Button
-                              type="button"
-                              variant={selectingLocation === "source" ? "default" : "outline"}
-                              size="icon"
-                              onClick={() =>
-                                setSelectingLocation(
-                                  selectingLocation === "source" ? null : "source"
-                                )
-                              }
-                              data-testid="button-select-source"
-                            >
-                              <MapPin className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {selectingLocation === "source" && (
-                            <p className="text-sm text-primary">
-                              Click on the map to select pickup location
-                            </p>
-                          )}
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="destAddress"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Dropoff Location</FormLabel>
-                          <div className="flex gap-2">
-                            <FormControl>
-                              <Input
-                                placeholder="Enter destination address"
-                                {...field}
-                                data-testid="input-dest-address"
-                              />
-                            </FormControl>
-                            <Button
-                              type="button"
-                              variant={selectingLocation === "dest" ? "default" : "outline"}
-                              size="icon"
-                              onClick={() =>
-                                setSelectingLocation(
-                                  selectingLocation === "dest" ? null : "dest"
-                                )
-                              }
-                              data-testid="button-select-dest"
-                            >
-                              <MapPin className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {selectingLocation === "dest" && (
-                            <p className="text-sm text-primary">
-                              Click on the map to select destination
-                            </p>
-                          )}
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <CalendarIcon className="h-5 w-5" />
-                      Schedule
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="departureDate"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>Departure Date</FormLabel>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <FormControl>
+        {/* Single comprehensive form section */}
+        <div className="max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Form - Full width on mobile, left side on desktop */}
+            <div className="space-y-6 lg:flex-1">
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                  <Card className="shadow-lg border-0 bg-gradient-to-br from-card to-card/50 backdrop-blur-sm">
+                    <CardHeader className="pb-6">
+                      <CardTitle className="text-2xl font-bold flex items-center gap-3">
+                        <Car className="h-6 w-6 text-primary" />
+                        Post Your Ride
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-8">
+                      {/* Route Section */}
+                      <div className="space-y-4">
+                        <FormField
+                          control={form.control}
+                          name="sourceAddress"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium">Pickup Location</FormLabel>
+                              <div className="flex gap-2">
+                                <FormControl>
+                                  <Input
+                                    placeholder="Enter pickup location or use map pin"
+                                    className={cn(
+                                      "h-12 flex-1 text-foreground",
+                                      sourceLat && sourceLng && sourceLat !== 0 && sourceLng !== 0
+                                        ? "border-green-500 bg-green-50 dark:bg-green-900/20 dark:border-green-400"
+                                        : ""
+                                    )}
+                                    {...field}
+                                    onBlur={(e) => { field.onBlur(); handleAddressBlur("source", e.target.value); }}
+                                    data-testid="input-source-address"
+                                  />
+                                </FormControl>
                                 <Button
-                                  variant="outline"
-                                  className={cn(
-                                    "w-full justify-start text-left font-normal",
-                                    !field.value && "text-muted-foreground"
-                                  )}
-                                  data-testid="button-date-picker"
+                                  type="button"
+                                  variant={selectingLocation === "source" ? "default" : "outline"}
+                                  size="icon"
+                                  className="h-12 w-12 shrink-0"
+                                  onClick={() =>
+                                    setSelectingLocation(
+                                      selectingLocation === "source" ? null : "source"
+                                    )
+                                  }
+                                  data-testid="button-select-source"
                                 >
-                                  <CalendarIcon className="mr-2 h-4 w-4" />
-                                  {field.value ? (
-                                    format(field.value, "PPP")
-                                  ) : (
-                                    <span>Pick a date</span>
-                                  )}
+                                  <MapPin className="h-5 w-5" />
                                 </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value}
-                                onSelect={field.onChange}
-                                disabled={(date) =>
-                                  date < new Date(new Date().setHours(0, 0, 0, 0))
-                                }
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                              </div>
+                              {selectingLocation === "source" && (
+                                <p className="text-sm text-primary font-medium mt-2">
+                                  📍 Tap on the map above to select pickup location
+                                </p>
+                              )}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
-                    <FormField
-                      control={form.control}
-                      name="departureTime"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Departure Time</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-time">
-                                <Clock className="mr-2 h-4 w-4" />
-                                <SelectValue placeholder="Select time" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {timeSlots.map((time) => (
-                                <SelectItem key={time} value={time}>
-                                  {format(
-                                    new Date(`2000-01-01T${time}`),
-                                    "h:mm a"
-                                  )}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
+                        <FormField
+                          control={form.control}
+                          name="destAddress"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium">Dropoff Location</FormLabel>
+                              <div className="flex gap-2">
+                                <FormControl>
+                                  <Input
+                                    placeholder="Enter dropoff location or use map pin"
+                                    className={cn(
+                                      "h-12 flex-1 text-foreground",
+                                      destLat && destLng && destLat !== 0 && destLng !== 0
+                                        ? "border-green-500 bg-green-50 dark:bg-green-900/20 dark:border-green-400"
+                                        : ""
+                                    )}
+                                    {...field}
+                                    onBlur={(e) => { field.onBlur(); handleAddressBlur("dest", e.target.value); }}
+                                    data-testid="input-dest-address"
+                                  />
+                                </FormControl>
+                                <Button
+                                  type="button"
+                                  variant={selectingLocation === "dest" ? "default" : "outline"}
+                                  size="icon"
+                                  className="h-12 w-12 shrink-0"
+                                  onClick={() =>
+                                    setSelectingLocation(
+                                      selectingLocation === "dest" ? null : "dest"
+                                    )
+                                  }
+                                  data-testid="button-select-dest"
+                                >
+                                  <MapPin className="h-5 w-5" />
+                                </Button>
+                              </div>
+                              {selectingLocation === "dest" && (
+                                <p className="text-sm text-primary font-medium mt-2">
+                                  📍 Tap on the map above to select destination
+                                </p>
+                              )}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      {/* Schedule Section */}
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="departureDate"
+                            render={({ field }) => (
+                              <FormItem className="flex flex-col">
+                                <FormLabel className="text-sm font-medium">Departure Date</FormLabel>
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <FormControl>
+                                      <Button
+                                        variant="outline"
+                                        className={cn(
+                                          "h-12 justify-start text-left font-normal w-full",
+                                          !field.value && "text-muted-foreground"
+                                        )}
+                                        data-testid="button-date-picker"
+                                      >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {field.value ? (
+                                          format(field.value, "PPP")
+                                        ) : (
+                                          <span>Pick a date</span>
+                                        )}
+                                      </Button>
+                                    </FormControl>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                      mode="single"
+                                      selected={field.value}
+                                      onSelect={field.onChange}
+                                      disabled={(date) =>
+                                        date < new Date(new Date().setHours(0, 0, 0, 0))
+                                      }
+                                      initialFocus
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Car className="h-5 w-5" />
-                      Ride Details
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {vehicles && vehicles.length > 0 && (
-                      <FormField
-                        control={form.control}
-                        name="vehicleId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Vehicle (Optional)</FormLabel>
-                            <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger data-testid="select-vehicle">
-                                  <SelectValue placeholder="Select a vehicle" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {vehicles.map((vehicle) => (
-                                  <SelectItem key={vehicle.id} value={vehicle.id}>
-                                    {vehicle.model} - {vehicle.plate}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
+                          <FormField
+                            control={form.control}
+                            name="departureTime"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium">Departure Time</FormLabel>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={field.value}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className="h-11" data-testid="select-time">
+                                      <Clock className="mr-2 h-4 w-4" />
+                                      <SelectValue placeholder="Select time" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {timeSlots.map((time) => (
+                                      <SelectItem key={time} value={time}>
+                                        {format(
+                                          new Date(`2000-01-01T${time}`),
+                                          "h:mm a"
+                                        )}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+                      {/* Ride Details Section */}
+                      <div className="space-y-4">
+                        {vehicles && vehicles.length > 0 && (
+                          <FormField
+                            control={form.control}
+                            name="vehicleId"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium">Vehicle (Optional)</FormLabel>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={field.value}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className="h-11" data-testid="select-vehicle">
+                                      <SelectValue placeholder="Select a vehicle" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {vehicles.map((vehicle) => (
+                                      <SelectItem key={vehicle.id} value={vehicle.id}>
+                                        {vehicle.model} - {vehicle.plate}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                         )}
-                      />
-                    )}
 
-                    <FormField
-                      control={form.control}
-                      name="seatsTotal"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Available Seats</FormLabel>
-                          <Select
-                            onValueChange={(value) => field.onChange(parseInt(value))}
-                            defaultValue={field.value.toString()}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-seats">
-                                <Users className="mr-2 h-4 w-4" />
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {[1, 2, 3, 4, 5, 6].map((num) => (
-                                <SelectItem key={num} value={num.toString()}>
-                                  {num} seat{num > 1 ? "s" : ""}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="seatsTotal"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Available Seats</FormLabel>
+                                <Select
+                                  onValueChange={(value) => field.onChange(parseInt(value))}
+                                  defaultValue={field.value.toString()}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className="h-11" data-testid="select-seats">
+                                      <Users className="mr-2 h-4 w-4" />
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {[1, 2, 3, 4, 5, 6].map((num) => (
+                                      <SelectItem key={num} value={num.toString()}>
+                                        {num} seat{num > 1 ? "s" : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                    <FormField
-                      control={form.control}
-                      name="costPerSeat"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Cost per Seat (PKR)</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                              <Input
-                                type="number"
-                                min={50}
-                                className="pl-10"
-                                {...field}
-                                data-testid="input-cost"
-                              />
-                            </div>
-                          </FormControl>
-                          <FormDescription>
-                            Recommended: Rs. 200-500 based on distance
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
+                          <FormField
+                            control={form.control}
+                            name="costPerSeat"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Cost per Seat (PKR)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                      type="number"
+                                      min={50}
+                                      className="pl-10 h-11"
+                                      {...field}
+                                      data-testid="input-cost"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormDescription>
+                                  Recommended: Rs. 200-500 based on distance
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  size="lg"
-                  disabled={createRideMutation.isPending}
-                  data-testid="button-post-ride"
-                >
-                  {createRideMutation.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Post Ride
-                </Button>
-              </form>
-            </Form>
-          </div>
-          
-          {/* UPDATED: Map visible on mobile, appropriate height */}
-          <div className="block mt-8 lg:mt-0"> 
-            <Card className="h-[400px] lg:h-[600px] lg:sticky lg:top-24 overflow-hidden">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Route Preview</CardTitle>
-                <CardDescription>
-                  {selectingLocation
-                    ? `Click to select ${selectingLocation === "source" ? "pickup" : "dropoff"} location`
-                    : "Visualize your ride route"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0 h-[calc(100%-5rem)]">
-                <MapComponent
-                  center={[(sourceLat + destLat) / 2, (sourceLng + destLng) / 2]}
-                  zoom={9}
-                  markers={mapMarkers}
-                  routes={mapRoutes}
-                  onClick={handleMapClick}
-                  interactive={true}
-                  className="h-full rounded-b-lg"
-                />
-              </CardContent>
-            </Card>
+                        {/* Progress indicator */}
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          {!sourceLat || !sourceLng || sourceLat === 0 || sourceLng === 0 ? (
+                            <p className="text-orange-600">⚠️ Please select a pickup location</p>
+                          ) : !destLat || !destLng || destLat === 0 || destLng === 0 ? (
+                            <p className="text-orange-600">⚠️ Please select a dropoff location</p>
+                          ) : (
+                            <p className="text-green-600">✅ All locations selected - ready to post!</p>
+                          )}
+                        </div>
+
+                        <Button
+                          type="submit"
+                          className="w-full h-12 text-lg font-semibold bg-primary hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all duration-200"
+                          size="lg"
+                          disabled={createRideMutation.isPending}
+                          data-testid="button-post-ride"
+                        >
+                          {createRideMutation.isPending ? (
+                            <>
+                              <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                              Posting Ride...
+                            </>
+                          ) : (
+                            <>
+                              <Car className="mr-3 h-5 w-5" />
+                              Post Ride
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  {/* Map - Full width on mobile, right side on desktop */}
+                  <div className="block lg:w-96">
+                    <Card className="h-[400px] lg:h-[600px] lg:sticky lg:top-24 overflow-hidden">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <MapPin className="h-5 w-5" />
+                          Route Preview
+                        </CardTitle>
+                        <CardDescription className="text-sm">
+                          {selectingLocation
+                            ? `Tap on map to select ${selectingLocation === "source" ? "pickup" : "dropoff"} location`
+                            : mapMarkers.length === 0
+                              ? "Click the map pin icons next to address fields to select locations"
+                              : "Route preview - click map pin icons to adjust locations"}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-0 h-[calc(100%-5rem)]">
+                        <MapComponent
+                          center={
+                            (sourceLat && sourceLng && destLat && destLng &&
+                              sourceLat !== 0 && sourceLng !== 0 && destLat !== 0 && destLng !== 0)
+                              ? [(sourceLat + destLat) / 2, (sourceLng + destLng) / 2]
+                              : [33.6844, 73.0479] // Default to Islamabad
+                          }
+                          zoom={
+                            (sourceLat && sourceLng && destLat && destLng &&
+                              sourceLat !== 0 && sourceLng !== 0 && destLat !== 0 && destLng !== 0)
+                              ? 9
+                              : 10 // Zoom in more when showing default location
+                          }
+                          markers={mapMarkers}
+                          routes={mapRoutes}
+                          onClick={handleMapClick}
+                          interactive={true}
+                          className="h-full rounded-b-lg"
+                        />
+                      </CardContent>
+                    </Card>
+                  </div>
+                </form>
+              </Form>
+            </div>
+            {/* Map - Right side on desktop */}
+            <div className="hidden lg:block lg:w-96">
+              <Card className="h-[400px] lg:h-[600px] lg:sticky lg:top-24 overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <MapPin className="h-5 w-5" />
+                    Route Preview
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    {selectingLocation
+                      ? `Tap on map to select ${selectingLocation === "source" ? "pickup" : "dropoff"} location`
+                      : mapMarkers.length === 0
+                        ? "Click the map pin icons next to address fields to select locations"
+                        : "Route preview - click map pin icons to adjust locations"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0 h-[calc(100%-5rem)]">
+                  <MapComponent
+                    center={
+                      (sourceLat && sourceLng && destLat && destLng &&
+                        sourceLat !== 0 && sourceLng !== 0 && destLat !== 0 && destLng !== 0)
+                        ? [(sourceLat + destLat) / 2, (sourceLng + destLng) / 2]
+                        : [33.6844, 73.0479] // Default to Islamabad
+                    }
+                    zoom={
+                      (sourceLat && sourceLng && destLat && destLng &&
+                        sourceLat !== 0 && sourceLng !== 0 && destLat !== 0 && destLng !== 0)
+                        ? 9
+                        : 10 // Zoom in more when showing default location
+                    }
+                    markers={mapMarkers}
+                    routes={mapRoutes}
+                    onClick={handleMapClick}
+                    interactive={true}
+                    className="h-full rounded-b-lg"
+                  />
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </div>

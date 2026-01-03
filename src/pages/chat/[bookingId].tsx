@@ -9,36 +9,38 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, ArrowLeft, Loader2 } from "lucide-react";
+import { Send, ArrowLeft, Loader2, Phone, Video, MoreVertical } from "lucide-react";
 import Link from "next/link";
+import { format } from "date-fns";
 
 // --- TYPES ---
 type Message = {
   id: string;
   senderId: string;
   content: string;
-  createdAt: string; // use createdAt from server
+  createdAt: string;
 };
 
 export default function ChatPage() {
   const router = useRouter();
   const bookingId = router.query.bookingId as string;
   const { user } = useAuth();
-  
+
   const [ablyClient, setAblyClient] = useState<Ably.Realtime | null>(null);
   const [channel, setChannel] = useState<Ably.RealtimeChannel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 1. Fetch Chat History from Database
-  const { data: history } = useQuery<Message[]>({
+  const { data: history, isLoading: historyLoading } = useQuery<Message[]>({
     queryKey: [`/api/chat/${bookingId}`],
     enabled: !!bookingId
   });
 
   // Fetch booking details (passenger/driver) to display names and avatars
-  const { data: bookingDetails } = useQuery<any>({
+  const { data: bookingDetails, isLoading: bookingLoading } = useQuery<any>({
     queryKey: bookingId ? [`/api/bookings/${bookingId}`] : [],
     enabled: !!bookingId,
   });
@@ -111,6 +113,7 @@ export default function ChatPage() {
     },
     onSuccess: () => {
       setInputText("");
+      inputRef.current?.focus();
     }
   });
 
@@ -120,76 +123,190 @@ export default function ChatPage() {
     sendMessageMutation.mutate(inputText);
   };
 
-  if (!user) return <div className="p-8 text-center">Please log in to chat.</div>;
+  const getOtherParticipant = () => {
+    if (!bookingDetails || !user) return null;
+    return user.id === bookingDetails.passenger?.id ? bookingDetails.driver : bookingDetails.passenger;
+  };
+
+  const otherParticipant = getOtherParticipant();
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold mb-2">Please log in</h2>
+          <p className="text-muted-foreground">You need to be logged in to access chat.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] bg-background">
-      {/* HEADER */}
-      <div className="p-4 border-b flex items-center gap-4 bg-primary text-primary-foreground shadow-md">
-        <Link href="/dashboard">
-          <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary/20">
-            <ArrowLeft className="h-5 w-5" />
+      {/* HEADER - Responsive */}
+      <div className="flex items-center justify-between p-3 sm:p-4 border-b bg-card shadow-sm">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <Link href="/dashboard">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 h-8 w-8 sm:h-10 sm:w-10"
+            >
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+            </Button>
+          </Link>
+
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <Avatar className="h-8 w-8 sm:h-10 sm:w-10 shrink-0">
+              {otherParticipant?.avatar ? (
+                <AvatarImage src={otherParticipant.avatar} />
+              ) : (
+                <AvatarFallback className="text-xs sm:text-sm">
+                  {(otherParticipant?.name || '?').split(' ').map((n: any) => n[0]).join('').slice(0, 2)}
+                </AvatarFallback>
+              )}
+            </Avatar>
+
+            <div className="min-w-0 flex-1">
+              <h1 className="font-semibold text-sm sm:text-base truncate">
+                {otherParticipant?.name || `Ride Chat`}
+              </h1>
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                {bookingLoading ? 'Loading...' : `Booking #${bookingId?.slice(0, 8)}`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons - hidden on very small screens */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
+            <Phone className="h-4 w-4" />
           </Button>
-        </Link>
-        <div>
-          <h2 className="font-semibold text-lg">Ride Chat</h2>
-          <p className="text-xs text-primary-foreground/80">
-            {bookingDetails ? (
-              // show the other participant's name: if current user is passenger, show driver; else show passenger
-              (user?.id === bookingDetails.passenger?.id) ? (bookingDetails.driver?.name || `Booking #${bookingId?.slice(0,8)}`) : (bookingDetails.passenger?.name || `Booking #${bookingId?.slice(0,8)}`)
-            ) : `Booking #${bookingId?.slice(0,8)}`}
-          </p>
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
-      {/* MESSAGES AREA */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-muted/10">
-        {messages.map((msg, idx) => {
-          const isMe = msg.senderId === user.id;
-          // Determine sender details from booking details
-          const sender = bookingDetails?.passenger?.id === msg.senderId ? bookingDetails.passenger : (bookingDetails?.driver?.id === msg.senderId ? bookingDetails.driver : null);
-          return (
-            <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex items-end max-w-[80%] gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                <Avatar className="h-8 w-8 border">
-                  {isMe ? (
-                    user?.avatar ? (
-                      <AvatarImage src={user.avatar} />
-                    ) : (
-                      <AvatarFallback>{(user?.name || 'Me').split(' ').map((n:any)=>n[0]).join('').slice(0,2)}</AvatarFallback>
-                    )
-                  ) : sender?.avatar ? (
-                    <AvatarImage src={sender.avatar} />
-                  ) : (
-                    <AvatarFallback>{(sender?.name||'?').split(' ').map((n:any)=>n[0]).join('').slice(0,2)}</AvatarFallback>
-                  )}
-                </Avatar>
-
-                <div className={`p-3 rounded-2xl text-sm ${isMe ? 'bg-primary text-primary-foreground rounded-br-none' : 'bg-white border shadow-sm rounded-bl-none dark:bg-slate-800 dark:border-border dark:text-slate-200 text-muted-foreground'}`}>
-                  <p>{msg.content}</p>
-                  <span className={`text-[10px] block mt-1 opacity-70 ${isMe ? 'text-primary-foreground' : 'text-muted-foreground'}`}>
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
-                  </span>
-                </div>
-              </div>
+      {/* MESSAGES AREA - Responsive */}
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 bg-muted/20">
+        {historyLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+              <Send className="h-8 w-8 text-muted-foreground" />
             </div>
-          );
-        })}
+            <h3 className="font-medium text-lg mb-2">Start a conversation</h3>
+            <p className="text-muted-foreground text-sm max-w-sm">
+              Send a message to discuss ride details, pickup location, or any questions.
+            </p>
+          </div>
+        ) : (
+          messages.map((msg, idx) => {
+            const isMe = msg.senderId === user.id;
+            const sender = bookingDetails?.passenger?.id === msg.senderId
+              ? bookingDetails.passenger
+              : (bookingDetails?.driver?.id === msg.senderId ? bookingDetails.driver : null);
+
+            const showAvatar = idx === 0 || messages[idx - 1].senderId !== msg.senderId;
+            const showTimestamp = idx === messages.length - 1 ||
+              messages[idx + 1].senderId !== msg.senderId ||
+              new Date(messages[idx + 1].createdAt).getTime() - new Date(msg.createdAt).getTime() > 300000; // 5 minutes
+
+            return (
+              <div key={msg.id || idx} className={`flex gap-2 sm:gap-3 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                {!isMe && (
+                  <div className="flex flex-col items-center gap-1">
+                    {showAvatar ? (
+                      <Avatar className="h-8 w-8 sm:h-10 sm:w-10 shrink-0">
+                        {sender?.avatar ? (
+                          <AvatarImage src={sender.avatar} />
+                        ) : (
+                          <AvatarFallback className="text-xs sm:text-sm">
+                            {(sender?.name || '?').split(' ').map((n: any) => n[0]).join('').slice(0, 2)}
+                          </AvatarFallback>
+                        )}
+                      </Avatar>
+                    ) : (
+                      <div className="h-8 w-8 sm:h-10 sm:w-10" />
+                    )}
+                  </div>
+                )}
+
+                <div className={`flex flex-col gap-1 max-w-[75%] sm:max-w-[70%] ${isMe ? 'items-end' : 'items-start'}`}>
+                  <div className={`px-3 py-2 sm:px-4 sm:py-3 rounded-2xl text-sm sm:text-base shadow-sm ${
+                    isMe
+                      ? 'bg-primary text-primary-foreground rounded-br-sm'
+                      : 'bg-card border text-card-foreground rounded-bl-sm'
+                  }`}>
+                    <p className="break-words">{msg.content}</p>
+                  </div>
+
+                  {showTimestamp && (
+                    <span className="text-[10px] sm:text-xs text-muted-foreground px-2">
+                      {format(new Date(msg.createdAt), 'HH:mm')}
+                    </span>
+                  )}
+                </div>
+
+                {isMe && (
+                  <div className="flex flex-col items-center gap-1">
+                    {showAvatar ? (
+                      <Avatar className="h-8 w-8 sm:h-10 sm:w-10 shrink-0">
+                        {user?.avatar ? (
+                          <AvatarImage src={user.avatar} />
+                        ) : (
+                          <AvatarFallback className="text-xs sm:text-sm">
+                            {(user?.name || 'Me').split(' ').map((n: any) => n[0]).join('').slice(0, 2)}
+                          </AvatarFallback>
+                        )}
+                      </Avatar>
+                    ) : (
+                      <div className="h-8 w-8 sm:h-10 sm:w-10" />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT AREA */}
-      <div className="p-4 bg-background border-t">
-        <form onSubmit={handleSend} className="flex gap-2">
-          <Input 
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1"
-            disabled={sendMessageMutation.isPending}
-          />
-          <Button type="submit" size="icon" disabled={sendMessageMutation.isPending || !inputText.trim()}>
-            {sendMessageMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+      {/* INPUT AREA - Responsive */}
+      <div className="p-3 sm:p-4 bg-card border-t">
+        <form onSubmit={handleSend} className="flex gap-2 sm:gap-3">
+          <div className="flex-1 relative">
+            <Input
+              ref={inputRef}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Type a message..."
+              className="pr-12 h-10 sm:h-12 text-sm sm:text-base"
+              disabled={sendMessageMutation.isPending}
+              maxLength={500}
+            />
+            {inputText.length > 400 && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                {inputText.length}/500
+              </span>
+            )}
+          </div>
+          <Button
+            type="submit"
+            size="icon"
+            className="h-10 w-10 sm:h-12 sm:w-12 shrink-0"
+            disabled={sendMessageMutation.isPending || !inputText.trim()}
+          >
+            {sendMessageMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         </form>
       </div>

@@ -24,7 +24,6 @@ type RideCardProps = {
 export function RideCard({ 
   ride, 
   onBook, 
-  onViewDetails,
   onTrack,
   showBookButton = true, 
   compact = false,
@@ -155,13 +154,6 @@ export function RideCard({
 
       {showBookButton && (
         <CardFooter className={`${compact ? 'p-3 pt-0' : 'p-4 pt-0'} gap-2`}>
-          <Button 
-            variant="outline" 
-            className="px-3"
-            onClick={onViewDetails}
-          >
-            <Info className="h-4 w-4" />
-          </Button>
 
           {showTrackButton ? (
              <Button 

@@ -112,6 +112,11 @@ export default function MyRides() {
     mutationFn: async (rideId: string) => { return apiRequest("DELETE", `/api/rides/${rideId}`); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/rides"] });
+      if (user?.id) {
+        queryClient.invalidateQueries({ queryKey: [
+          `/api/rides?driverId=${user.id}`
+        ] });
+      }
       toast({ title: "Ride deleted" });
       setDeleteDialogOpen(false);
     },
@@ -211,7 +216,7 @@ export default function MyRides() {
 
   return (
     <div className="min-h-screen bg-muted/5 pb-24 md:pb-8">
-      <div className="container px-4 py-6 max-w-6xl mx-auto">
+      <div className="container px-4 py-4 max-w-6xl mx-auto">
         
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
@@ -271,8 +276,8 @@ export default function MyRides() {
         )}
 
         {/* --- Tabs Section --- */}
-        <Tabs defaultValue="active" className="space-y-6">
-          <div className="overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0 md:pb-0 scrollbar-hide">
+        <Tabs defaultValue="active" className="space-y-4">
+          <div className="overflow-x-auto pb-0 -mx-4 px-4 md:mx-0 md:px-0 md:pb-0 scrollbar-hide">
              <TabsList className="w-full md:w-auto inline-flex h-10 p-1 bg-muted/80 backdrop-blur rounded-xl">
                <TabsTrigger value="active" className="gap-2 flex-1 md:flex-none px-6">
                  <Car className="h-4 w-4" /> Active ({activeRides.length})

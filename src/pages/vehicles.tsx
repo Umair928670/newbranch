@@ -60,7 +60,7 @@ export default function Vehicles() {
   const [vehicleToDelete, setVehicleToDelete] = useState<string | null>(null);
 
   const { data: vehicles, isLoading } = useQuery<Vehicle[]>({
-    queryKey: ["/api/vehicles", user?.id],
+    queryKey: [user?.id ? `/api/vehicles?ownerId=${user.id}` : ""],
     enabled: !!user?.id,
   });
 
@@ -82,7 +82,7 @@ export default function Vehicles() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", user?.id] });
+      queryClient.invalidateQueries({ queryKey: [user?.id ? `/api/vehicles?ownerId=${user.id}` : ""] });
       toast({
         title: "Vehicle added",
         description: "Your vehicle has been registered successfully.",
@@ -104,7 +104,7 @@ export default function Vehicles() {
       return apiRequest("PATCH", `/api/vehicles/${editingVehicle?.id}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", user?.id] });
+      queryClient.invalidateQueries({ queryKey: [user?.id ? `/api/vehicles?ownerId=${user.id}` : ""] });
       toast({
         title: "Vehicle updated",
         description: "Your vehicle has been updated successfully.",
@@ -127,7 +127,7 @@ export default function Vehicles() {
       return apiRequest("DELETE", `/api/vehicles/${vehicleId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", user?.id] });
+      queryClient.invalidateQueries({ queryKey: [user?.id ? `/api/vehicles?ownerId=${user.id}` : ""] });
       toast({
         title: "Vehicle deleted",
         description: "Your vehicle has been removed.",

@@ -3,6 +3,7 @@ import { connectDB } from "@/db";
 import { storage } from "@/storage";
 import { loginSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
+import bcrypt from "bcrypt";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ message: "Method not allowed" });
@@ -17,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { email, password } = result.data;
     const user = await storage.getUserByEmail(email);
-    if (!user || user.password !== password) return res.status(401).json({ message: "Invalid credentials" });
+    if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ message: "Invalid credentials" });
 
     const { password: _pw, ...safeUser } = user as any;
     return res.json(safeUser);

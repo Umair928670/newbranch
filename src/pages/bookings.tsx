@@ -82,7 +82,13 @@ export default function Bookings() {
           : action === "reject"
           ? "rejected"
           : "cancelled";
-      return apiRequest("PATCH", `/api/bookings/${bookingId}`, { status });
+      // Send caller identity for server auth
+      return apiRequest(
+        "PATCH",
+        `/api/bookings/${bookingId}`,
+        { status },
+        { "x-user-id": user?.id || "" }
+      );
     },
     onSuccess: (_, { action }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
@@ -173,10 +179,10 @@ export default function Bookings() {
   return (
     // ✅ 1. Mobile-First Container (pb-24 for Nav Bar)
     <div className="min-h-screen bg-muted/5 pb-24 md:pb-8">
-      <div className="container px-4 py-6 max-w-6xl mx-auto">
+      <div className="container px-4 py-4 max-w-6xl mx-auto">
         
         {/* ✅ 2. Responsive Header (Stack on mobile, Row on desktop) */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Bookings</h1>
             <p className="text-sm text-muted-foreground">
@@ -190,7 +196,7 @@ export default function Bookings() {
           </div>
         </div>
 
-        <Tabs defaultValue="pending" className="space-y-6">
+        <Tabs defaultValue="pending" className="space-y-3">
           {/* ✅ 3. Scrollable Tabs Wrapper */}
           <div className="overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0 md:pb-0 scrollbar-hide">
               <TabsList className="w-full md:w-auto inline-flex h-11 md:h-10 p-1 bg-muted/80 backdrop-blur rounded-xl">
